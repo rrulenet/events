@@ -1,0 +1,22 @@
+{
+  "$schema": "https://jsr.io/schema/config-file.v1.json",
+  "name": "@rrulenet/events",
+  "version": "0.1.7",
+  "exports": {
+    ".": "./src/index.ts"
+  },
+  "exclude": [
+    ".github/",
+    "dist/",
+    "deno.json",
+    "package-lock.json",
+    "package.json",
+    "test/",
+    "scripts/",
+    "tsdown.config.ts",
+    "tsconfig.json",
+    "badges/",
+    "coverage-output.txt",
+    "node_modules/"
+  ]
+}
