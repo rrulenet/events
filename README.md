@@ -71,7 +71,7 @@ Trigger each regional audience 7 days before a maintenance window at 09:00 local
 
 `@rrulenet/recurrence` remains the recurrence engine. It owns recurrence parsing, recurrence JSON, point occurrence generation, and recurrence algebra.
 
-`@rrulenet/events` does not extend that API. It depends on `@rrulenet/recurrence` and uses `Recurrence` as the engine for `during` and `window` transforms. Event-relative transforms are not recurrence filters; they generate explicit local trigger occurrences from event anchor dates.
+`@rrulenet/events` does not extend that API. It depends on `@rrulenet/recurrence` and uses `Recurrence` as the engine for `during` and `window` transforms. Event-relative transforms are not recurrence filters; they generate explicit occurrences from event anchors.
 
 The event layer owns only:
 
@@ -126,15 +126,19 @@ type EventScheduleJson = {
   transform: {
     kind: 'event-relative';
     anchor?: 'start';
-    triggers: Array<{
-      before: { days: number };
-      time: '09:00';
-    } | {
-      after: { days: number };
-      time: '09:00';
-    }>;
+    triggers: Array<
+      | { before: { days: number }; time: string }
+      | { after: { days: number }; time: string }
+      | { before: ElapsedDuration }
+      | { after: ElapsedDuration }
+      | { at: 'start' | 'end' }
+    >;
   };
 };
+
+type ElapsedDuration =
+  | { hours: number; minutes?: number }
+  | { hours?: number; minutes: number };
 ```
 
 Date members are calendar dates. They are projected into the schedule timezone as half-open local-day windows:
@@ -149,14 +153,31 @@ Point members are exact temporal points. Interval members are half-open windows:
 [start, end)
 ```
 
-Event-relative transforms use the event member's local anchor date in the schedule timezone:
+Event-relative transforms deliberately distinguish calendar projection from
+elapsed-time arithmetic.
+
+Calendar triggers use integer `days` plus a required local `time`:
 
 - date members anchor on their date
 - point members anchor on the point instant converted to the schedule timezone
 - interval `before` triggers anchor on the interval start instant converted to the schedule timezone
 - interval `after` triggers anchor on the interval end instant converted to the schedule timezone
 
-Each trigger applies calendar days to the local anchor date, then combines the resulting date with the supplied local wall-clock time. A trigger must contain exactly one of `before` or `after`.
+They apply calendar days to the local anchor date, then combine the resulting
+date with the supplied wall-clock time. The local time therefore remains stable
+across daylight-saving transitions.
+
+Exact elapsed triggers use non-negative integer `hours`, `minutes`, or both,
+with a positive total duration, and do not accept `time`. They subtract from the
+start instant for `before`, and add to the interval end or point instant for
+`after`. Exact `{ at: 'start' }` and `{ at: 'end' }` triggers project the
+corresponding instant directly.
+
+Date members support only calendar triggers because a date does not identify an
+exact instant. Point members support elapsed triggers and `at: 'start'`.
+Interval members support every trigger, including `at: 'end'`. Every trigger
+must contain exactly one of `before`, `after`, or `at`; calendar `days` cannot be
+mixed with elapsed `hours` or `minutes`.
 
 ## Example
 
@@ -222,6 +243,11 @@ const schedule = EventSchedule.fromJSON({
     kind: 'event-relative',
     triggers: [
       { before: { days: 7 }, time: '09:00' },
+      { before: { hours: 2 } },
+      { before: { minutes: 15 } },
+      { at: 'start' },
+      { at: 'end' },
+      { after: { minutes: 30 } },
       { after: { days: 2 }, time: '09:00' },
     ],
   },
@@ -230,6 +256,11 @@ const schedule = EventSchedule.fromJSON({
 console.log(schedule.occurrences().map((value) => value.toString()));
 // [
 //   '2026-09-08T09:00:00+08:00[Australia/Perth]',
+//   '2026-09-15T08:00:00+08:00[Australia/Perth]',
+//   '2026-09-15T09:45:00+08:00[Australia/Perth]',
+//   '2026-09-15T10:00:00+08:00[Australia/Perth]',
+//   '2026-09-15T12:00:00+08:00[Australia/Perth]',
+//   '2026-09-15T12:30:00+08:00[Australia/Perth]',
 //   '2026-09-17T09:00:00+08:00[Australia/Perth]'
 // ]
 ```

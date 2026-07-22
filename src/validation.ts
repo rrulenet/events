@@ -127,21 +127,38 @@ export function validateEventRelativeTriggerJson(value: unknown, context: string
   assertPlainObject(value, context);
   const keys = Object.keys(value);
   for (const key of keys) {
-    if (key !== 'before' && key !== 'after' && key !== 'time') {
+    if (key !== 'before' && key !== 'after' && key !== 'at' && key !== 'time') {
       eventError(EVENT_ERROR_CODES.INVALID_TRANSFORM, `${context}.${key} is not supported`);
     }
   }
   const hasBefore = 'before' in value;
   const hasAfter = 'after' in value;
-  if (hasBefore === hasAfter) {
-    eventError(EVENT_ERROR_CODES.INVALID_TRANSFORM, `${context} expects exactly one of before or after`);
+  const hasAt = 'at' in value;
+  if (Number(hasBefore) + Number(hasAfter) + Number(hasAt) !== 1) {
+    eventError(EVENT_ERROR_CODES.INVALID_TRANSFORM, `${context} expects exactly one of before, after, or at`);
   }
-  if (hasBefore) {
-    validateEventRelativeDurationJson(value.before, `${context}.before`);
+
+  if (hasAt) {
+    if (value.at !== 'start' && value.at !== 'end') {
+      eventError(EVENT_ERROR_CODES.INVALID_TRANSFORM, `${context}.at expects "start" or "end"`);
+    }
+    if (value.time !== undefined) {
+      eventError(EVENT_ERROR_CODES.INVALID_TRANSFORM, `${context}.time is not supported for exact anchor triggers`);
+    }
+    return;
   }
-  if (hasAfter) {
-    validateEventRelativeDurationJson(value.after, `${context}.after`);
+
+  const durationKind = hasBefore
+    ? validateEventRelativeDurationJson(value.before, `${context}.before`)
+    : validateEventRelativeDurationJson(value.after, `${context}.after`);
+
+  if (durationKind === 'elapsed') {
+    if (value.time !== undefined) {
+      eventError(EVENT_ERROR_CODES.INVALID_TRANSFORM, `${context}.time is not supported for exact elapsed triggers`);
+    }
+    return;
   }
+
   assertString(value.time, `${context}.time`);
   try {
     Temporal.PlainTime.from(value.time);
@@ -150,18 +167,43 @@ export function validateEventRelativeTriggerJson(value: unknown, context: string
   }
 }
 
-function validateEventRelativeDurationJson(value: unknown, context: string): asserts value is Required<Pick<EventDurationJson, 'days'>> {
+function validateEventRelativeDurationJson(value: unknown, context: string): 'calendar' | 'elapsed' {
   assertPlainObject(value, context);
   const keys = Object.keys(value);
   for (const key of keys) {
-    if (key !== 'days') {
+    if (key !== 'days' && key !== 'hours' && key !== 'minutes') {
       eventError(EVENT_ERROR_CODES.INVALID_TRANSFORM, `${context}.${key} is not supported`);
     }
   }
-  const days = value.days;
-  if (typeof days !== 'number' || !Number.isInteger(days) || days < 0) {
-    eventError(EVENT_ERROR_CODES.INVALID_TRANSFORM, `${context}.days expects a non-negative integer`);
+
+  if (value.days !== undefined) {
+    if (value.hours !== undefined || value.minutes !== undefined) {
+      eventError(EVENT_ERROR_CODES.INVALID_TRANSFORM, `${context} cannot mix calendar days with elapsed hours or minutes`);
+    }
+    if (typeof value.days !== 'number' || !Number.isInteger(value.days) || value.days < 0) {
+      eventError(EVENT_ERROR_CODES.INVALID_TRANSFORM, `${context}.days expects a non-negative integer`);
+    }
+    return 'calendar';
   }
+
+  if (value.hours === undefined && value.minutes === undefined) {
+    eventError(EVENT_ERROR_CODES.INVALID_TRANSFORM, `${context} expects days, hours, or minutes`);
+  }
+
+  for (const unit of ['hours', 'minutes'] as const) {
+    const amount = value[unit];
+    if (amount !== undefined && (typeof amount !== 'number' || !Number.isInteger(amount) || amount < 0)) {
+      eventError(EVENT_ERROR_CODES.INVALID_TRANSFORM, `${context}.${unit} expects a non-negative integer`);
+    }
+  }
+
+  const elapsedHours = (value.hours as number | undefined) ?? 0;
+  const elapsedMinutes = (value.minutes as number | undefined) ?? 0;
+  if (elapsedHours + elapsedMinutes === 0) {
+    eventError(EVENT_ERROR_CODES.INVALID_TRANSFORM, `${context} expects a positive elapsed duration`);
+  }
+
+  return 'elapsed';
 }
 
 export function validateEventScheduleJson(value: unknown, context = 'EventSchedule.fromJSON()'): asserts value is EventScheduleJson {
@@ -171,6 +213,7 @@ export function validateEventScheduleJson(value: unknown, context = 'EventSchedu
   validateEventSetJson(value.events, `${context}.events`);
   validateEventTransformJson(value.transform, `${context}.transform`);
   if (value.transform.kind === 'event-relative') {
+    validateExactTriggerEventMembers(value.transform.triggers, value.events.members, `${context}.transform`);
     if ('recurrence' in value && value.recurrence !== undefined) {
       eventError(EVENT_ERROR_CODES.INVALID_SCHEDULE, `${context}.recurrence is not supported for event-relative transforms`);
     }
@@ -180,6 +223,32 @@ export function validateEventScheduleJson(value: unknown, context = 'EventSchedu
     const result = Recurrence.validateJSON(value.recurrence);
     const detail = result.ok ? 'invalid recurrence JSON' : result.error.message;
     eventError(EVENT_ERROR_CODES.INVALID_SCHEDULE, `${context}.recurrence is invalid: ${detail}`);
+  }
+}
+
+function validateExactTriggerEventMembers(
+  triggers: EventRelativeTriggerJson[],
+  members: EventSetMemberJson[],
+  context: string,
+): void {
+  const hasExactTrigger = triggers.some((trigger) =>
+    'at' in trigger
+    || ('before' in trigger && !('days' in trigger.before))
+    || ('after' in trigger && !('days' in trigger.after))
+  );
+  if (hasExactTrigger && members.some((member) => member.kind === 'date')) {
+    eventError(
+      EVENT_ERROR_CODES.INVALID_TRANSFORM,
+      `${context} exact elapsed and anchor triggers require point or interval event members`,
+    );
+  }
+
+  const hasEndAnchor = triggers.some((trigger) => 'at' in trigger && trigger.at === 'end');
+  if (hasEndAnchor && members.some((member) => member.kind !== 'interval')) {
+    eventError(
+      EVENT_ERROR_CODES.INVALID_TRANSFORM,
+      `${context} exact end anchor triggers require interval event members`,
+    );
   }
 }
 

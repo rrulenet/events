@@ -218,6 +218,74 @@ test('EventSchedule event-relative triggers preserve wall-clock time across DST 
   ]);
 });
 
+test('EventSchedule projects exact elapsed triggers and interval anchors', () => {
+  const schedule = eventRelativeScheduleFor('Europe/Paris', maintenanceEventSet(), [
+    { before: { hours: 2 } },
+    { before: { minutes: 15 } },
+    { at: 'start' },
+    { at: 'end' },
+    { after: { minutes: 30 } },
+  ]);
+
+  assert.deepEqual(schedule.occurrences().map((value) => value.toString()), [
+    '2026-09-15T02:00:00+02:00[Europe/Paris]',
+    '2026-09-15T03:45:00+02:00[Europe/Paris]',
+    '2026-09-15T04:00:00+02:00[Europe/Paris]',
+    '2026-09-15T06:00:00+02:00[Europe/Paris]',
+    '2026-09-15T06:30:00+02:00[Europe/Paris]',
+  ]);
+});
+
+test('EventSchedule projects exact elapsed triggers around point events', () => {
+  const schedule = eventRelativeScheduleFor('Europe/Paris', {
+    kind: 'event-set',
+    id: 'inline.global_launch_2026_08_15',
+    version: 'test',
+    members: [
+      { kind: 'point', id: 'global-launch', at: '2026-08-15T02:00:00Z' },
+    ],
+  }, [
+    { before: { hours: 2 } },
+    { at: 'start' },
+    { after: { minutes: 30 } },
+  ]);
+
+  assert.deepEqual(schedule.occurrences().map((value) => value.toString()), [
+    '2026-08-15T02:00:00+02:00[Europe/Paris]',
+    '2026-08-15T04:00:00+02:00[Europe/Paris]',
+    '2026-08-15T04:30:00+02:00[Europe/Paris]',
+  ]);
+});
+
+test('EventSchedule exact elapsed triggers preserve elapsed time across DST boundaries', () => {
+  const schedule = eventRelativeScheduleFor('Europe/Paris', {
+    kind: 'event-set',
+    id: 'inline.dst_maintenance_2026',
+    version: 'test',
+    members: [
+      {
+        kind: 'interval',
+        id: 'dst-maintenance',
+        start: '2026-03-29T01:30:00Z',
+        end: '2026-03-29T03:30:00Z',
+      },
+    ],
+  }, [
+    { before: { hours: 2 } },
+    { at: 'start' },
+  ]);
+
+  const occurrences = schedule.occurrences();
+  assert.deepEqual(occurrences.map((value) => value.toString()), [
+    '2026-03-29T00:30:00+01:00[Europe/Paris]',
+    '2026-03-29T03:30:00+02:00[Europe/Paris]',
+  ]);
+  assert.equal(
+    occurrences[0].until(occurrences[1], { largestUnit: 'hours' }).total('hours'),
+    2,
+  );
+});
+
 test('EventSchedule JSON round-trips deterministically', () => {
   const original = scheduleFor('Europe/Paris', {
     kind: 'window',
@@ -239,6 +307,10 @@ test('EventSchedule JSON round-trips deterministically', () => {
 test('EventSchedule event-relative JSON round-trips without recurrence', () => {
   const original = eventRelativeScheduleFor('Europe/Paris', maintenanceEventSet(), [
     { before: { days: 7 }, time: '09:00' },
+    { before: { hours: 2 } },
+    { at: 'start' },
+    { at: 'end' },
+    { after: { minutes: 30 } },
   ]);
   const json = original.toJSON();
   const rebuilt = EventSchedule.fromJSON(json);
@@ -324,7 +396,7 @@ test('EventSet and EventSchedule validation reject invalid inputs', () => {
         triggers: [{ time: '08:00' }],
       },
     }),
-    /transform.triggers\[0\] expects exactly one of before or after/,
+    /transform.triggers\[0\] expects exactly one of before, after, or at/,
   );
 
   assert.throws(
@@ -337,7 +409,7 @@ test('EventSet and EventSchedule validation reject invalid inputs', () => {
         triggers: [{ before: { days: 7 }, after: { days: 2 }, time: '08:00' }],
       },
     }),
-    /transform.triggers\[0\] expects exactly one of before or after/,
+    /transform.triggers\[0\] expects exactly one of before, after, or at/,
   );
 
   assert.throws(
@@ -365,6 +437,80 @@ test('EventSet and EventSchedule validation reject invalid inputs', () => {
       },
     }),
     /recurrence is not supported for event-relative transforms/,
+  );
+});
+
+test('EventSchedule validation rejects ambiguous or unsupported exact triggers', () => {
+  const invalidCases = [
+    {
+      trigger: { before: { hours: 2 }, time: '09:00' },
+      error: /time is not supported for exact elapsed triggers/,
+    },
+    {
+      trigger: { before: { days: 1, hours: 2 }, time: '09:00' },
+      error: /cannot mix calendar days with elapsed hours or minutes/,
+    },
+    {
+      trigger: { before: { hours: 0, minutes: 0 } },
+      error: /expects a positive elapsed duration/,
+    },
+    {
+      trigger: { before: {} },
+      error: /expects days, hours, or minutes/,
+    },
+    {
+      trigger: { after: { minutes: -1 } },
+      error: /minutes expects a non-negative integer/,
+    },
+    {
+      trigger: { after: { hours: 1.5 } },
+      error: /hours expects a non-negative integer/,
+    },
+    {
+      trigger: { at: 'middle' },
+      error: /at expects "start" or "end"/,
+    },
+    {
+      trigger: { at: 'start', time: '09:00' },
+      error: /time is not supported for exact anchor triggers/,
+    },
+  ];
+
+  for (const { trigger, error } of invalidCases) {
+    assert.throws(
+      () => eventRelativeScheduleFor('Europe/Paris', maintenanceEventSet(), [trigger]),
+      error,
+    );
+  }
+
+  const dateEventSet = {
+    kind: 'event-set',
+    id: 'inline.black_friday_2026',
+    version: 'test',
+    members: [
+      { kind: 'date', id: 'black_friday_2026', date: '2026-11-27' },
+    ],
+  };
+  assert.throws(
+    () => eventRelativeScheduleFor('Europe/Paris', dateEventSet, [{ before: { hours: 2 } }]),
+    /exact elapsed and anchor triggers require point or interval event members/,
+  );
+  assert.throws(
+    () => eventRelativeScheduleFor('Europe/Paris', dateEventSet, [{ at: 'start' }]),
+    /exact elapsed and anchor triggers require point or interval event members/,
+  );
+
+  const pointEventSet = {
+    kind: 'event-set',
+    id: 'inline.global_launch_2026_08_15',
+    version: 'test',
+    members: [
+      { kind: 'point', id: 'global-launch', at: '2026-08-15T02:00:00Z' },
+    ],
+  };
+  assert.throws(
+    () => eventRelativeScheduleFor('Europe/Paris', pointEventSet, [{ at: 'end' }]),
+    /exact end anchor triggers require interval event members/,
   );
 });
 

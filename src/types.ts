@@ -45,19 +45,44 @@ export interface EventDurationJson {
   days?: number;
 }
 
-export interface EventRelativeBeforeTriggerJson {
+export type EventElapsedDurationJson =
+  | { hours: number; minutes?: number }
+  | { hours?: number; minutes: number };
+
+export interface EventRelativeCalendarBeforeTriggerJson {
   before: Required<Pick<EventDurationJson, 'days'>>;
   time: string;
 }
 
-export interface EventRelativeAfterTriggerJson {
+export interface EventRelativeElapsedBeforeTriggerJson {
+  before: EventElapsedDurationJson;
+}
+
+export type EventRelativeBeforeTriggerJson =
+  | EventRelativeCalendarBeforeTriggerJson
+  | EventRelativeElapsedBeforeTriggerJson;
+
+export interface EventRelativeCalendarAfterTriggerJson {
   after: Required<Pick<EventDurationJson, 'days'>>;
   time: string;
 }
 
+export interface EventRelativeElapsedAfterTriggerJson {
+  after: EventElapsedDurationJson;
+}
+
+export type EventRelativeAfterTriggerJson =
+  | EventRelativeCalendarAfterTriggerJson
+  | EventRelativeElapsedAfterTriggerJson;
+
+export interface EventRelativeAtTriggerJson {
+  at: 'start' | 'end';
+}
+
 export type EventRelativeTriggerJson =
   | EventRelativeBeforeTriggerJson
-  | EventRelativeAfterTriggerJson;
+  | EventRelativeAfterTriggerJson
+  | EventRelativeAtTriggerJson;
 
 export interface EventRelativeTransformJson {
   kind: 'event-relative';

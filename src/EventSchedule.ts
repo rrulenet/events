@@ -5,6 +5,9 @@ import { EventSet, type EventWindow } from './EventSet.ts';
 import { validateEventScheduleJson } from './validation.ts';
 import type {
   EventDurationJson,
+  EventElapsedDurationJson,
+  EventRelativeCalendarAfterTriggerJson,
+  EventRelativeCalendarBeforeTriggerJson,
   EventRelativeTriggerJson,
   EventScheduleJson,
   EventTransformJson,
@@ -127,19 +130,65 @@ export class EventSchedule {
     const occurrences: Temporal.ZonedDateTime[] = [];
     for (const window of this.events.windows(this.timezone)) {
       for (const trigger of triggers) {
-        const date = eventRelativeDate(window, trigger);
-        const time = Temporal.PlainTime.from(trigger.time);
-        occurrences.push(date.toZonedDateTime({ timeZone: this.timezone, plainTime: time }));
+        occurrences.push(projectEventRelativeTrigger(window, trigger, this.timezone));
       }
     }
     return sortAndDedupe(occurrences);
   }
 }
 
-function eventRelativeDate(window: EventWindow, trigger: EventRelativeTriggerJson): Temporal.PlainDate {
+function projectEventRelativeTrigger(
+  window: EventWindow,
+  trigger: EventRelativeTriggerJson,
+  timezone: string,
+): Temporal.ZonedDateTime {
+  if ('at' in trigger) {
+    return exactEventAnchor(window, trigger.at).toInstant().toZonedDateTimeISO(timezone);
+  }
+
+  if (isCalendarEventRelativeTrigger(trigger)) {
+    const date = eventRelativeCalendarDate(window, trigger);
+    const time = Temporal.PlainTime.from(trigger.time);
+    return date.toZonedDateTime({ timeZone: timezone, plainTime: time });
+  }
+
+  const duration = 'before' in trigger ? trigger.before : trigger.after;
+  const anchor = 'before' in trigger ? window.start : eventRelativeEndAnchor(window);
+  const instant = 'before' in trigger
+    ? anchor.toInstant().subtract(elapsedDurationToTemporal(duration))
+    : anchor.toInstant().add(elapsedDurationToTemporal(duration));
+  return instant.toZonedDateTimeISO(timezone);
+}
+
+function eventRelativeCalendarDate(
+  window: EventWindow,
+  trigger: EventRelativeCalendarBeforeTriggerJson | EventRelativeCalendarAfterTriggerJson,
+): Temporal.PlainDate {
   if ('before' in trigger) return window.start.toPlainDate().subtract({ days: trigger.before.days });
-  const anchor = window.kind === 'interval' ? window.end : window.start;
+  const anchor = eventRelativeEndAnchor(window);
   return anchor.toPlainDate().add({ days: trigger.after.days });
+}
+
+function isCalendarEventRelativeTrigger(
+  trigger: EventRelativeTriggerJson,
+): trigger is EventRelativeCalendarBeforeTriggerJson | EventRelativeCalendarAfterTriggerJson {
+  return ('before' in trigger && 'days' in trigger.before)
+    || ('after' in trigger && 'days' in trigger.after);
+}
+
+function exactEventAnchor(window: EventWindow, anchor: 'start' | 'end'): Temporal.ZonedDateTime {
+  return anchor === 'start' ? window.start : window.end;
+}
+
+function eventRelativeEndAnchor(window: EventWindow): Temporal.ZonedDateTime {
+  return window.kind === 'interval' ? window.end : window.start;
+}
+
+function elapsedDurationToTemporal(value: EventElapsedDurationJson): Temporal.DurationLike {
+  return {
+    hours: value.hours ?? 0,
+    minutes: value.minutes ?? 0,
+  };
 }
 
 function isWithinHalfOpenWindow(value: Temporal.ZonedDateTime, window: EventWindow): boolean {
