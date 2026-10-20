@@ -1,4 +1,4 @@
-import { Recurrence } from '@rrulenet/recurrence';
+import { Recurrence, type RecurrenceJsonOptions } from '@rrulenet/recurrence';
 import { Temporal } from 'temporal-polyfill';
 
 import { EVENT_ERROR_CODES, eventError } from './errors.ts';
@@ -206,7 +206,7 @@ function validateEventRelativeDurationJson(value: unknown, context: string): 'ca
   return 'elapsed';
 }
 
-export function validateEventScheduleJson(value: unknown, context = 'EventSchedule.fromJSON()'): asserts value is EventScheduleJson {
+export function validateEventScheduleJson(value: unknown, context = 'EventSchedule.fromJSON()', options: RecurrenceJsonOptions = {}): asserts value is EventScheduleJson {
   assertPlainObject(value, context);
   if (value.kind !== 'event-schedule') eventError(EVENT_ERROR_CODES.INVALID_SCHEDULE, `${context} expects kind "event-schedule"`);
   assertTimezone(value.timezone, `${context}.timezone`);
@@ -219,8 +219,8 @@ export function validateEventScheduleJson(value: unknown, context = 'EventSchedu
     }
     return;
   }
-  if (!Recurrence.isJSON(value.recurrence)) {
-    const result = Recurrence.validateJSON(value.recurrence);
+  if (!Recurrence.isJSON(value.recurrence, options)) {
+    const result = Recurrence.validateJSON(value.recurrence, options);
     const detail = result.ok ? 'invalid recurrence JSON' : result.error.message;
     eventError(EVENT_ERROR_CODES.INVALID_SCHEDULE, `${context}.recurrence is invalid: ${detail}`);
   }

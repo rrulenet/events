@@ -1,4 +1,4 @@
-import { Recurrence } from '@rrulenet/recurrence';
+import { Recurrence, type RecurrenceJsonOptions } from '@rrulenet/recurrence';
 import { Temporal } from 'temporal-polyfill';
 
 import { EventSet, type EventWindow } from './EventSet.ts';
@@ -39,11 +39,11 @@ export class EventSchedule {
     this.transform = cloneJson(options.transform);
   }
 
-  static fromJSON(json: EventScheduleJson): EventSchedule {
-    validateEventScheduleJson(json);
+  static fromJSON(json: EventScheduleJson, options: RecurrenceJsonOptions = {}): EventSchedule {
+    validateEventScheduleJson(json, 'EventSchedule.fromJSON()', options);
     return new EventSchedule({
       events: EventSet.fromJSON(json.events),
-      recurrence: 'recurrence' in json ? Recurrence.fromJSON(json.recurrence) : undefined,
+      recurrence: 'recurrence' in json ? Recurrence.fromJSON(json.recurrence, options) : undefined,
       timezone: json.timezone,
       transform: json.transform,
     });

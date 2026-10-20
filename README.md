@@ -81,6 +81,24 @@ The event layer owns only:
 - event-relative trigger occurrences in a target timezone
 - deterministic serialization of event schedules
 
+## Temporal contract (0.2.0)
+
+`during` and `window` consume either a calendar recurrence or
+`Recurrence.elapsed`. Windows are half-open `[start, end)`. Filtering an elapsed
+cadence retains its global anchor and phase; window opening does not reset it.
+Source COUNT is applied before window filtering, without refilling discarded
+occurrences. Exact offsets and explicit points preserve both autumn passages.
+Calendar recurrence projections use the shared autumn and spring resolution.
+
+Nested recurrence JSON uses `temporalVersion: 2`. For reviewed legacy calendar
+rules, `EventSchedule.fromJSON(json, { legacy: 'calendar' })` explicitly adopts
+the new interpretation. Unknown versions fail; event-set versions keep their
+existing separate meaning.
+
+Upgrade `events` and `recurrence` in all readers and workers before saving
+migrated JSON. Older versions may accept it while applying the previous
+recurrence semantics. Keep original definitions and execution history for rollback.
+
 ## Data Boundary
 
 Runtime event data does not live in this package.
