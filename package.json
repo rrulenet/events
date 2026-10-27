@@ -1,6 +1,6 @@
 {
   "name": "@rrulenet/events",
-  "version": "0.2.0",
+  "version": "0.2.1",
   "description": "Event-set projection layer for contextual scheduling with @rrulenet/recurrence.",
   "license": "MIT",
   "type": "module",
@@ -44,7 +44,7 @@
     "typecheck": "tsc -p tsconfig.json"
   },
   "dependencies": {
-    "@rrulenet/recurrence": "^0.2.0",
+    "@rrulenet/recurrence": "^0.2.1",
     "temporal-polyfill": "^1.0.6"
   },
   "devDependencies": {
