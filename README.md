@@ -76,6 +76,8 @@ Trigger each regional audience 7 days before a maintenance window at 09:00 local
 The event layer owns only:
 
 - event-set JSON validation
+- interval timestamps and strictly increasing instant bounds are validated at
+  ingestion, including through `isJSON()` and `validateJSON()`
 - date, point, and interval member semantics
 - projection of recurrence occurrences onto event dates or event windows
 - event-relative trigger occurrences in a target timezone

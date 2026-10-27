@@ -80,10 +80,16 @@ export function validateEventSetMemberJson(value: unknown, context: string): ass
       assertString(value.at, `${context}.at`);
       parseTemporalBoundary(value.at, 'UTC', `${context}.at`);
       return;
-    case 'interval':
+    case 'interval': {
       assertString(value.start, `${context}.start`);
       assertString(value.end, `${context}.end`);
+      const start = parseTemporalBoundary(value.start, 'UTC', `${context}.start`);
+      const end = parseTemporalBoundary(value.end, 'UTC', `${context}.end`);
+      if (Temporal.Instant.compare(end.toInstant(), start.toInstant()) <= 0) {
+        eventError(EVENT_ERROR_CODES.INVALID_EVENT_MEMBER, `${context} interval end must be after start`);
+      }
       return;
+    }
     default:
       eventError(EVENT_ERROR_CODES.INVALID_EVENT_MEMBER, `${context}.kind expects "date", "point", or "interval"`);
   }
