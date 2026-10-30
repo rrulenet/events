@@ -30,9 +30,14 @@
   <img src="https://img.shields.io/badge/license-MIT-2563EB" alt="MIT License">
 </p>
 
-`@rrulenet/events` is a small event-set projection layer. It combines explicit event sets supplied by an application with transforms that either project a `Recurrence` from `@rrulenet/recurrence` during or around those events, or generate event-relative triggers from those events.
+`@rrulenet/events` combines explicit event dates, instants and windows with
+recurrences or event-relative triggers. Use it for schedules such as “every day
+at 09:00 during a campaign” or “seven days before maintenance at 09:00 local
+time”.
 
-It is not an event catalogue, a data client, or an event-discovery service. Applications own event sourcing, persistence, metadata, permissions, and product-specific availability rules.
+Applications supply the event data. The package does not fetch events or ship
+an event catalogue. Recurrence rules and their algebra come from
+[`@rrulenet/recurrence`](https://github.com/rrulenet/recurrence).
 
 ## Install
 
@@ -40,177 +45,21 @@ It is not an event catalogue, a data client, or an event-discovery service. Appl
 npm install @rrulenet/events @rrulenet/recurrence
 ```
 
-## Role
-
-The package answers this question:
-
-```text
-given explicit event dates/windows + a transform,
-which occurrences should run?
-```
-
-For example:
-
-```text
-Every day at 09:00 during Black Friday and Cyber Monday
-```
-
-or:
-
-```text
-Every day at 09:00 from 10 days before Black Friday through 2 days after Cyber Monday
-```
-
-or:
-
-```text
-Trigger each regional audience 7 days before a maintenance window at 09:00 local time
-```
-
-## Boundary With `@rrulenet/recurrence`
-
-`@rrulenet/recurrence` remains the recurrence engine. It owns recurrence parsing, recurrence JSON, point occurrence generation, and recurrence algebra.
-
-`@rrulenet/events` does not extend that API. It depends on `@rrulenet/recurrence` and uses `Recurrence` as the engine for `during` and `window` transforms. Event-relative transforms are not recurrence filters; they generate explicit occurrences from event anchors.
-
-The event layer owns only:
-
-- event-set JSON validation
-- interval timestamps and strictly increasing instant bounds are validated at
-  ingestion, including through `isJSON()` and `validateJSON()`
-- date, point, and interval member semantics
-- projection of recurrence occurrences onto event dates or event windows
-- event-relative trigger occurrences in a target timezone
-- deterministic serialization of event schedules
-
-## Temporal contract (0.2.0)
-
-`during` and `window` consume either a calendar recurrence or
-`Recurrence.elapsed`. Windows are half-open `[start, end)`. Filtering an elapsed
-cadence retains its global anchor and phase; window opening does not reset it.
-Source COUNT is applied before window filtering, without refilling discarded
-occurrences. Exact offsets and explicit points preserve both autumn passages.
-Calendar recurrence projections use the shared autumn and spring resolution.
-
-Nested recurrence JSON uses `temporalVersion: 2`. For reviewed legacy calendar
-rules, `EventSchedule.fromJSON(json, { legacy: 'calendar' })` explicitly adopts
-the new interpretation. Unknown versions fail; event-set versions keep their
-existing separate meaning.
-
-Upgrade `events` and `recurrence` in all readers and workers before saving
-migrated JSON. Older versions may accept it while applying the previous
-recurrence semantics. Keep original definitions and execution history for rollback.
-
-## Data Boundary
-
-Runtime event data does not live in this package.
-
-Applications pass explicit `EventSetJson` objects into the library. Event ids, versions, sources, metadata, curation status, persistence, permissions, and availability rules belong to the application layer.
-
-This package does not fetch event data and does not ship a runtime event catalogue.
-
-Tests include deterministic fixtures such as `black_friday_2026` and `cyber_monday_2026`. They are fixtures, not bundled catalogue data.
-
-## JSON Model
-
-`EventSetJson` contains explicit members:
-
-```ts
-type EventSetMemberJson =
-  | { kind: 'date'; id: string; date: '2026-11-27' }
-  | { kind: 'point'; id: string; at: '2026-11-27T09:00:00Z' }
-  | { kind: 'interval'; id: string; start: string; end: string };
-```
-
-For recurrence projection, the schedule combines events, recurrence, and transform:
-
-```ts
-type EventScheduleJson = {
-  kind: 'event-schedule';
-  timezone: string;
-  events: EventSetJson;
-  recurrence: RecurrenceJson;
-  transform:
-    | { kind: 'during' }
-    | { kind: 'window'; before?: { days?: number }; after?: { days?: number } };
-};
-```
-
-For event-relative triggers, `recurrence` is intentionally absent:
-
-```ts
-type EventScheduleJson = {
-  kind: 'event-schedule';
-  timezone: string;
-  events: EventSetJson;
-  transform: {
-    kind: 'event-relative';
-    anchor?: 'start';
-    triggers: Array<
-      | { before: { days: number }; time: string }
-      | { after: { days: number }; time: string }
-      | { before: ElapsedDuration }
-      | { after: ElapsedDuration }
-      | { at: 'start' | 'end' }
-    >;
-  };
-};
-
-type ElapsedDuration =
-  | { hours: number; minutes?: number }
-  | { hours?: number; minutes: number };
-```
-
-Date members are calendar dates. They are projected into the schedule timezone as half-open local-day windows:
-
-```text
-[YYYY-MM-DDT00:00, next local midnight)
-```
-
-Point members are exact temporal points. Interval members are half-open windows:
-
-```text
-[start, end)
-```
-
-Event-relative transforms deliberately distinguish calendar projection from
-elapsed-time arithmetic.
-
-Calendar triggers use integer `days` plus a required local `time`:
-
-- date members anchor on their date
-- point members anchor on the point instant converted to the schedule timezone
-- interval `before` triggers anchor on the interval start instant converted to the schedule timezone
-- interval `after` triggers anchor on the interval end instant converted to the schedule timezone
-
-They apply calendar days to the local anchor date, then combine the resulting
-date with the supplied wall-clock time. The local time therefore remains stable
-across daylight-saving transitions.
-
-Exact elapsed triggers use non-negative integer `hours`, `minutes`, or both,
-with a positive total duration, and do not accept `time`. They subtract from the
-start instant for `before`, and add to the interval end or point instant for
-`after`. Exact `{ at: 'start' }` and `{ at: 'end' }` triggers project the
-corresponding instant directly.
-
-Date members support only calendar triggers because a date does not identify an
-exact instant. Point members support elapsed triggers and `at: 'start'`.
-Interval members support every trigger, including `at: 'end'`. Every trigger
-must contain exactly one of `before`, `after`, or `at`; calendar `days` cannot be
-mixed with elapsed `hours` or `minutes`.
+Requires Node.js 20 or later when used with Node. Native Temporal is used where
+available; the included polyfill covers other runtimes.
 
 ## Example
 
 ```js
-import { Temporal } from 'temporal-polyfill';
 import { Recurrence } from '@rrulenet/recurrence';
 import { EventSchedule } from '@rrulenet/events';
 
 const recurrence = Recurrence.rule({
   freq: 'DAILY',
   byHour: [9],
-  start: Temporal.ZonedDateTime.from('2026-11-01T09:00:00[America/New_York]'),
-  until: Temporal.ZonedDateTime.from('2026-12-10T09:00:00[America/New_York]'),
+  start: new Date('2026-11-01T14:00:00Z'),
+  tzid: 'America/New_York',
+  until: new Date('2026-12-10T14:00:00Z'),
 });
 
 const schedule = EventSchedule.fromJSON({
@@ -236,64 +85,36 @@ const schedule = EventSchedule.fromJSON({
 console.log(schedule.occurrences().map((value) => value.toString()));
 ```
 
-## Event-Relative Example
+## Event types and transforms
 
-```js
-import { EventSchedule } from '@rrulenet/events';
+| Event type | Meaning |
+| --- | --- |
+| `date` | A calendar date in the schedule timezone |
+| `point` | An exact instant |
+| `interval` | A half-open window `[start, end)` |
 
-const schedule = EventSchedule.fromJSON({
-  kind: 'event-schedule',
-  timezone: 'Australia/Perth',
-  events: {
-    kind: 'event-set',
-    id: 'inline.maintenance.2026-09-15',
-    version: 'user-snapshot-1',
-    source: 'inline',
-    timezone: 'UTC',
-    members: [
-      {
-        kind: 'interval',
-        id: 'maintenance-window',
-        start: '2026-09-15T02:00:00Z',
-        end: '2026-09-15T04:00:00Z',
-      },
-    ],
-  },
-  transform: {
-    kind: 'event-relative',
-    triggers: [
-      { before: { days: 7 }, time: '09:00' },
-      { before: { hours: 2 } },
-      { before: { minutes: 15 } },
-      { at: 'start' },
-      { at: 'end' },
-      { after: { minutes: 30 } },
-      { after: { days: 2 }, time: '09:00' },
-    ],
-  },
-});
+Use `during` to keep recurrence occurrences inside the events, or `window` to
+extend the event windows by calendar days. These filters preserve the source
+recurrence's COUNT and, for elapsed cadences, its exact anchor and phase.
 
-console.log(schedule.occurrences().map((value) => value.toString()));
-// [
-//   '2026-09-08T09:00:00+08:00[Australia/Perth]',
-//   '2026-09-15T08:00:00+08:00[Australia/Perth]',
-//   '2026-09-15T09:45:00+08:00[Australia/Perth]',
-//   '2026-09-15T10:00:00+08:00[Australia/Perth]',
-//   '2026-09-15T12:00:00+08:00[Australia/Perth]',
-//   '2026-09-15T12:30:00+08:00[Australia/Perth]',
-//   '2026-09-17T09:00:00+08:00[Australia/Perth]'
-// ]
-```
+Use `event-relative` to generate triggers directly from event anchors:
 
-## Future VEVENT Relationship
+- `{ before: { days: 7 }, time: '09:00' }` follows calendar days and local time.
+- `{ before: { hours: 2 } }` subtracts an exact elapsed duration.
+- `{ at: 'start' }` or `{ at: 'end' }` preserves an exact anchor instant.
 
-`@rrulenet/vevent` is intentionally out of scope for this package.
+Date members support calendar triggers. Point and interval members also support
+elapsed triggers; `at: 'end'` requires an interval.
 
-This package keeps date sets, point sets, and interval/window semantics explicit, so a future VEVENT-oriented package can map richer event components into event sets later without forcing VEVENT concepts into this smaller projection layer.
+## Persistence and validation
 
-## Development
+Use `EventSchedule.toJSON()` and `EventSchedule.fromJSON()` to store and restore
+schedules. Event timestamps and strictly increasing interval bounds are checked
+at ingestion. `isJSON()` and `validateJSON()` provide non-throwing validation.
 
-```bash
-npm install
-npm test
-```
+Nested recurrence JSON retains its temporal format and intention. Calendar
+projections follow the recurrence timezone contract; elapsed offsets and exact
+points preserve their instants through daylight-saving overlaps.
+
+See the [event scheduling reference](https://github.com/rrulenet/events/blob/main/docs/API.md)
+for JSON shapes, anchor rules, legacy JSON adoption and event-relative examples.
