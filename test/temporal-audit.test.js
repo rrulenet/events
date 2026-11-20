@@ -18,3 +18,16 @@ test('dense annual recurrence stays bounded by the event window after JSON resto
     ]);
   }
 });
+
+test('event schedule JSON retains calendar dates in its recurrence', () => {
+  const recurrence = Recurrence.rule({ freq: 'DAILY', start: '2025-01-01', tzid: 'UTC', count: 3 })
+    .excludingDates(['2025-01-02']);
+  const events = EventSet.fromJSON({ kind: 'event-set', id: 'dates', version: '1', members: [
+    { id: 'window', kind: 'interval', start: '2025-01-01T00:00:00Z', end: '2025-01-04T00:00:00Z' },
+  ] });
+  const schedule = new EventSchedule({ events, recurrence, timezone: 'UTC', transform: { kind: 'during' } });
+  const restored = EventSchedule.fromJSON(JSON.parse(JSON.stringify(schedule)));
+  assert.equal(restored.toJSON().recurrence.start, '2025-01-01');
+  assert.deepEqual(restored.toJSON().recurrence.exclude, [{ dates: ['2025-01-02'] }]);
+  assert.deepEqual(restored.occurrences().map(value => value.toPlainDate().toString()), ['2025-01-01', '2025-01-03']);
+});
